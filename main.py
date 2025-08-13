@@ -7,8 +7,8 @@ from typing import Dict, List, Tuple
 def parse_log_file(file_path: str) -> List[Dict]:
     """Parse log file and return list of log entries."""
     logs = []
-    with open(file_path, 'r') as f:
-        for line in f:
+    with open(file_path, 'r') as log_file:
+        for line in log_file:
             try:
                 log_entry = json.loads(line.strip())
                 logs.append(log_entry)
@@ -26,10 +26,10 @@ def process_logs(logs: List[Dict]) -> Dict[str, Tuple[int, float]]:
         if not url:
             continue
 
-        # Extract endpoint path (first two parts of URL)
+        # Extract endpoint path
         parts = url.split('/')
         if len(parts) >= 3:
-            endpoint = f"/{parts[1]}/{parts[2]}"
+            endpoint = f"/{parts[1]}/{parts[2]}/..."
         else:
             endpoint = url
 
@@ -49,13 +49,14 @@ def process_logs(logs: List[Dict]) -> Dict[str, Tuple[int, float]]:
 def generate_report(data: Dict[str, Tuple[int, float]]) -> str:
     """Generate formatted report from processed data."""
     # Prepare header
-    header = f"{'Endpoint':<30} {'Requests':>10} {'Avg Time (ms)':>15}"
-    separator = '-' * len(header)
+    header = f"{'  '}  {'handler':<25}  {'total':>7}  {'avg_response_time':>19}"
+    separator = f"{'':->2}  {'':-<25}  {'':->7}  {'':->19}"
 
     # Prepare rows
     rows = []
-    for endpoint, (count, avg_time) in sorted(data.items()):
-        rows.append(f"{endpoint:<30} {count:>10} {avg_time * 1000:>15.2f}")
+    for index, (endpoint, (count, avg_time)) in enumerate(sorted(data.items()
+            , key=lambda item: item[1][0], reverse=True)):
+        rows.append(f"{str(index):>2}  {endpoint:<25}  {count:>7}  {avg_time:>19.3f}")
 
     # Combine everything
     return "\n".join([header, separator] + rows)

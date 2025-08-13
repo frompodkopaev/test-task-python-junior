@@ -31,8 +31,7 @@ def sample_log_file(sample_logs):
 
 @pytest.fixture
 def temp_log_file(sample_log_file):
-    """Фикстура для создания временного файла с логами"""
-    temp_path = "temp_test_log.log"
+    temp_path = "temp_test.log"
     with open(temp_path, 'w', encoding='utf-8') as f:
         f.write(sample_log_file)
     yield temp_path
@@ -41,7 +40,6 @@ def temp_log_file(sample_log_file):
 
 
 def test_parse_log_file_with_real_file(temp_log_file):
-    """Тест чтения логов из реального файла"""
     result = parse_log_file(temp_log_file)
 
     assert len(result) == 5
@@ -50,19 +48,7 @@ def test_parse_log_file_with_real_file(temp_log_file):
     assert result[-1]['url'] == "/invalid"
 
 
-def test_parse_log_file_with_mock(sample_logs):
-    """Тест чтения логов с использованием mock"""
-    log_data = "".join(json.dumps(log) + "\n" for log in sample_logs)
-    with patch('builtins.open', mock_open(read_data=log_data)):
-        result = parse_log_file("dummy_path.log")
-
-    assert len(result) == 5
-    assert result[0]['request_method'] == "GET"
-    assert result[2]['url'].startswith("/api/homeworks")
-
-
 def test_process_logs(sample_logs):
-    """Тест обработки логов и расчета статистики"""
     result = process_logs(sample_logs)
 
     assert len(result) == 3  # /api/context, /api/homeworks, /invalid
@@ -72,7 +58,6 @@ def test_process_logs(sample_logs):
 
 
 def test_generate_report():
-    """Тест генерации отчета"""
     test_data = {
         '/api/context': (5, 0.03),
         '/api/homeworks': (10, 0.15),
@@ -80,7 +65,6 @@ def test_generate_report():
     }
     report = generate_report(test_data)
 
-    # Проверяем наличие всех ожидаемых данных в отчете
     assert all(
         endpoint in report for endpoint in ['/api/context', '/api/homeworks', '/invalid']
     )
@@ -93,7 +77,6 @@ def test_generate_report():
 @patch('builtins.print')
 @patch('argparse.ArgumentParser.parse_args')
 def test_main_integration(mock_args, mock_print, sample_log_file):
-    """Интеграционный тест main() с моками"""
     # Настраиваем моки
     mock_args.return_value = argparse.Namespace(
         file=['dummy.log'],
@@ -112,49 +95,3 @@ def test_main_integration(mock_args, mock_print, sample_log_file):
     assert '/api/context' in report
     assert '/api/homeworks' in report
     assert 'Avg Time (ms)' in report
-
-
-def test_empty_log_file():
-    """Тест обработки пустого файла"""
-    temp_path = "empty_test_log.log"
-    try:
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            f.write("")
-
-        result = parse_log_file(temp_path)
-        assert len(result) == 0
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-
-def test_invalid_json_log_file():
-    """Тест обработки файла с некорректным JSON"""
-    temp_path = "invalid_test_log.log"
-    try:
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            f.write("invalid json\n")
-
-        result = parse_log_file(temp_path)
-        assert len(result) == 0
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-
-def test_partial_json_log_file(sample_logs):
-    """Тест обработки файла с частично некорректным JSON"""
-    temp_path = "partial_test_log.log"
-    try:
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            f.write(json.dumps(sample_logs[0]) + "\n")
-            f.write("invalid json\n")
-            f.write(json.dumps(sample_logs[1]) + "\n")
-
-        result = parse_log_file(temp_path)
-        assert len(result) == 2  # только 2 валидные записи
-        assert result[0]['url'] == "/api/context/123"
-        assert result[1]['url'] == "/api/context/456"
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)

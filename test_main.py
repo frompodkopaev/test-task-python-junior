@@ -1,97 +1,99 @@
 import pytest
-import json
-import os
-from io import StringIO
-from unittest.mock import patch, mock_open
-import argparse
-
 from main import parse_log_file, process_logs, generate_report, main
 
+# Test data
+SAMPLE_LOGS = [
+    '{"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/context/...", "request_method": "GET",'
+    ' "response_time": 0.02, "http_user_agent": "..."}',
+    '{"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/homeworks/...", "request_method": "GET",'
+    ' "response_time": 0.032, "http_user_agent": "..."}',
+    '{"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/context/...", "request_method": "GET",'
+    ' "response_time": 0.024, "http_user_agent": "..."}',
+    '{"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/homeworks/...", "request_method": "GET",'
+    ' "response_time": 0.06, "http_user_agent": "..."}',
+    'not a json string'
+]
+
+EXPECTED_PARSED_LOGS = [
+    {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/context/...", "request_method": "GET",
+     "response_time": 0.02, "http_user_agent": "..."},
+    {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/homeworks/...", "request_method": "GET",
+     "response_time": 0.032, "http_user_agent": "..."},
+    {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/context/...", "request_method": "GET",
+     "response_time": 0.024, "http_user_agent": "..."},
+    {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200, "url": "/api/homeworks/...", "request_method": "GET",
+     "response_time": 0.06, "http_user_agent": "..."},
+]
+
+EXPECTED_PROCESSED_STATS = {
+    "/api/context/...": (2, 0.022),
+    "/api/homeworks/...": (2, 0.046),
+}
+
+EXPECTED_REPORT = """    handler                      total    avg_response_time
+--  -------------------------  -------  -------------------
+ 0  /api/context/...                 2                0.022
+ 1  /api/homeworks/...               2                0.046"""
+
 
 @pytest.fixture
-def sample_logs():
-    return [
-        {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200,
-         "url": "/api/context/123", "request_method": "GET", "response_time": 0.024},
-        {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200,
-         "url": "/api/context/456", "request_method": "GET", "response_time": 0.02},
-        {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200,
-         "url": "/api/homeworks/789", "request_method": "GET", "response_time": 0.06},
-        {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200,
-         "url": "/api/homeworks/012", "request_method": "GET", "response_time": 0.04},
-        {"@timestamp": "2025-06-22T13:57:32+00:00", "status": 200,
-         "url": "/invalid", "request_method": "GET", "response_time": 0.01},
-    ]
+def sample_log_file(tmp_path):
+    file_path = tmp_path / "test.log"
+    with open(file_path, 'w') as f:
+        f.write("\n".join(SAMPLE_LOGS))
+    return file_path
 
 
-@pytest.fixture
-def sample_log_file(sample_logs):
-    return "".join(json.dumps(log) + "\n" for log in sample_logs)
+def test_parse_log_file(sample_log_file):
+    logs = parse_log_file(sample_log_file)
+    assert logs == EXPECTED_PARSED_LOGS
 
 
-@pytest.fixture
-def temp_log_file(sample_log_file):
-    temp_path = "temp_test.log"
-    with open(temp_path, 'w', encoding='utf-8') as f:
-        f.write(sample_log_file)
-    yield temp_path
-    if os.path.exists(temp_path):
-        os.remove(temp_path)
+def test_parse_log_file_nonexistent():
+    non_existent_file = "nonexistent.log"
+    with pytest.raises(FileNotFoundError):
+        parse_log_file(non_existent_file)
 
 
-def test_parse_log_file_with_real_file(temp_log_file):
-    result = parse_log_file(temp_log_file)
+def test_process_logs():
+    processed = process_logs(EXPECTED_PARSED_LOGS)
 
-    assert len(result) == 5
-    assert result[0]['url'] == "/api/context/123"
-    assert result[1]['response_time'] == 0.02
-    assert result[-1]['url'] == "/invalid"
-
-
-def test_process_logs(sample_logs):
-    result = process_logs(sample_logs)
-
-    assert len(result) == 3  # /api/context, /api/homeworks, /invalid
-    assert result['/api/context'] == (2, 0.022)  # count, avg_time
-    assert result['/api/homeworks'] == (2, 0.05)
-    assert result['/invalid'] == (1, 0.01)
+    assert processed == EXPECTED_PROCESSED_STATS
 
 
 def test_generate_report():
-    test_data = {
-        '/api/context': (5, 0.03),
-        '/api/homeworks': (10, 0.15),
-        '/invalid': (1, 0.01)
-    }
-    report = generate_report(test_data)
+    report = generate_report(EXPECTED_PROCESSED_STATS)
+    assert report == EXPECTED_REPORT
 
-    assert all(
-        endpoint in report for endpoint in ['/api/context', '/api/homeworks', '/invalid']
+
+def test_process_logs_with_short_url():
+    logs = [
+        {"url": "/short", "response_time": 0.1},
+    ]
+    processed = process_logs(logs)
+    assert len(processed) == 1
+    assert "/short" in processed
+
+
+def test_main(monkeypatch, capsys, tmp_path):
+    # Create test log files
+    file1 = tmp_path / "log1.log"
+    file2 = tmp_path / "log2.log"
+
+    with open(file1, 'w') as f:
+        f.write("\n".join(SAMPLE_LOGS[:2]))
+
+    with open(file2, 'w') as f:
+        f.write("\n".join(SAMPLE_LOGS[2:4]))
+
+    # Mock command line arguments
+    monkeypatch.setattr(
+        'sys.argv',
+        ['script_name', '--file', str(file1), str(file2)]
     )
-    assert "5" in report  # количество запросов для context
-    assert "10" in report  # количество запросов для homeworks
-    assert "30.00" in report  # 0.03 * 1000
-    assert "150.00" in report  # 0.15 * 1000
 
+    main()
 
-@patch('builtins.print')
-@patch('argparse.ArgumentParser.parse_args')
-def test_main_integration(mock_args, mock_print, sample_log_file):
-    # Настраиваем моки
-    mock_args.return_value = argparse.Namespace(
-        file=['dummy.log'],
-        report='average'
-    )
-
-    # Подменяем открытие файла
-    with patch('builtins.open', mock_open(read_data=sample_log_file)):
-        main()
-
-    # Проверяем что отчет был выведен
-    assert mock_print.called
-    report = mock_print.call_args[0][0]
-
-    # Проверяем содержание отчета
-    assert '/api/context' in report
-    assert '/api/homeworks' in report
-    assert 'Avg Time (ms)' in report
+    captured = capsys.readouterr()
+    report = captured.out.rstrip()
+    assert report == EXPECTED_REPORT
